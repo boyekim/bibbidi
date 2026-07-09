@@ -3,15 +3,16 @@ package com.bibbidi.domain.user;
 import com.bibbidi.domain.user.dto.UserLoginRequest;
 import com.bibbidi.domain.user.dto.UserResponse;
 import com.bibbidi.domain.user.dto.UserSignupRequest;
+import com.bibbidi.support.exception.ConflictException;
+import com.bibbidi.support.exception.UnauthorizedException;
+import com.bibbidi.support.exception.errors.UserErrors;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @Transactional(readOnly = true)
@@ -26,7 +27,7 @@ public class UserService {
     @Transactional
     public UserResponse signup(UserSignupRequest request) {
         if (userRepository.existsByEmail(request.email())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 가입된 이메일입니다.");
+            throw new ConflictException(UserErrors.DUPLICATE_EMAIL);
         }
 
         User user = new User(
@@ -41,10 +42,10 @@ public class UserService {
 
     public UserResponse login(UserLoginRequest request, HttpSession session) {
         User user = userRepository.findByEmail(request.email())
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다."));
+            .orElseThrow(() -> new UnauthorizedException(UserErrors.INVALID_LOGIN));
 
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "이메일 또는 비밀번호가 올바르지 않습니다.");
+            throw new UnauthorizedException(UserErrors.INVALID_LOGIN);
         }
 
         session.setAttribute(USER_ID_SESSION_KEY, user.getId());
