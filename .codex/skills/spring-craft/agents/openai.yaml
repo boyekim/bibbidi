@@ -1,0 +1,4 @@
+interface:
+  display_name: "Spring Craft"
+  short_description: "Craft Spring Boot backend changes"
+  default_prompt: "Use $spring-craft to implement a Spring Boot backend change following local conventions."
