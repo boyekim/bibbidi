@@ -2,6 +2,7 @@ package com.bibbidi.support.auth;
 
 import com.bibbidi.domain.user.User;
 import com.bibbidi.domain.user.UserRepository;
+import com.bibbidi.domain.user.UserService;
 import com.bibbidi.support.exception.UnauthorizedException;
 import com.bibbidi.support.exception.errors.UserErrors;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,8 +18,6 @@ import org.springframework.web.method.support.ModelAndViewContainer;
 @Component
 @RequiredArgsConstructor
 public class AuthArgumentResolver implements HandlerMethodArgumentResolver {
-
-    private static final String USER_ID_SESSION_KEY = "userId";
 
     private final UserRepository userRepository;
 
@@ -45,7 +44,7 @@ public class AuthArgumentResolver implements HandlerMethodArgumentResolver {
             throw new UnauthorizedException(UserErrors.LOGIN_REQUIRED);
         }
 
-        Object userId = session.getAttribute(USER_ID_SESSION_KEY);
+        Object userId = session.getAttribute(UserService.USER_ID_SESSION_KEY);
         if (!(userId instanceof Long id)) {
             throw new UnauthorizedException(UserErrors.LOGIN_REQUIRED);
         }
