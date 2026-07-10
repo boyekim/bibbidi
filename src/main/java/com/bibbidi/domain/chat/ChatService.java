@@ -2,6 +2,8 @@ package com.bibbidi.domain.chat;
 
 import com.bibbidi.domain.chat.dto.ChatHistoryResponse;
 import com.bibbidi.domain.chat.dto.ChatItemResponse;
+import com.bibbidi.domain.chat.dto.ChatMessageRequest;
+import com.bibbidi.domain.chat.dto.ChatMessagesRequest;
 import com.bibbidi.domain.user.User;
 import com.bibbidi.domain.vendor.DemoWeddingDataService;
 import com.bibbidi.domain.wedding.WeddingProfile;
@@ -40,8 +42,26 @@ public class ChatService {
         chatItemRepository.save(new ChatItem(weddingProfile, "assistant", "text", payloadJson(new TextPayload(text))));
     }
 
+    @Transactional
+    public void recordMessages(User user, ChatMessagesRequest request) {
+        WeddingProfile weddingProfile = demoWeddingDataService.ensureDefaultData(user);
+        List<ChatItem> items = request.items().stream()
+            .map(message -> toChatItem(weddingProfile, message))
+            .toList();
+        chatItemRepository.saveAll(items);
+    }
+
     private ChatItemResponse toResponse(ChatItem chatItem) {
         return ChatItemResponse.of(chatItem, readPayload(chatItem));
+    }
+
+    private ChatItem toChatItem(WeddingProfile weddingProfile, ChatMessageRequest request) {
+        return new ChatItem(
+            weddingProfile,
+            request.role(),
+            request.kind(),
+            payloadJson(request.payload())
+        );
     }
 
     private JsonNode readPayload(ChatItem chatItem) {
