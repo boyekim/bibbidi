@@ -14,6 +14,8 @@ import com.bibbidi.support.exception.BadRequestException;
 import com.bibbidi.support.exception.NotFoundException;
 import com.bibbidi.support.exception.errors.VendorErrors;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.Comparator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -71,7 +73,8 @@ public class VendorCardService {
         WeddingProfile weddingProfile = demoWeddingDataService.ensureDefaultData(user);
         List<VendorCard> vendorCards = vendorCardRepository.findByWeddingProfileOrderByIdAsc(weddingProfile);
         List<VendorEvent> vendorEvents = vendorEventRepository.findByVendorCardInOrderByEventAtAscIdAsc(vendorCards);
-        List<PaymentSchedule> paymentSchedules = paymentScheduleRepository.findByVendorCardInOrderByDueDateAscIdAsc(vendorCards);
+        List<PaymentSchedule> paymentSchedules = paymentScheduleRepository
+            .findByVendorCardInOrderByDueDateAscIdAsc(vendorCards);
 
         List<CardEventResponse> generalEvents = vendorEvents.stream()
             .map(CardEventResponse::from)
@@ -85,7 +88,7 @@ public class VendorCardService {
             .filter(event -> isWithin(event.date(), from, to))
             .sorted(Comparator
                 .comparing(CardEventResponse::date)
-                .thenComparing(event -> event.time() == null ? "" : event.time())
+                .thenComparing(this::eventTime)
                 .thenComparing(CardEventResponse::id))
             .toList();
     }
@@ -95,37 +98,44 @@ public class VendorCardService {
         WeddingProfile weddingProfile = demoWeddingDataService.ensureDefaultData(user);
         DraftVendorCard draft = draftVendorCardRepository.findByIdAndWeddingProfile(tempCardId, weddingProfile)
             .orElseThrow(() -> new NotFoundException(VendorErrors.DRAFT_CARD_NOT_FOUND));
-
-        String action = request.action();
-        if ("cancel".equals(action)) {
-            draftVendorCardRepository.delete(draft);
-            String reply = "임시 카드 생성을 취소했어요.";
-            chatService.recordAssistantText(weddingProfile, reply);
-            return TempCardConfirmResponse.of(null, reply);
+        if ("cancel".equals(request.action())) {
+            return cancelConfirmation(weddingProfile, draft);
         }
-
-        validateConfirmAction(action);
+        validateConfirmAction(request.action());
         validateDraft(draft);
+        VendorCard currentCard = currentCard(weddingProfile, draft);
+        VendorCard vendorCard = createVendorCard(weddingProfile, draft, currentCard, request.action());
+        saveConfirmationDetails(weddingProfile, draft, currentCard, vendorCard, request);
+        return completeConfirmation(weddingProfile, draft, currentCard, vendorCard, request);
+    }
 
-        VendorCard currentCard = vendorCardRepository
+    private TempCardConfirmResponse cancelConfirmation(WeddingProfile weddingProfile, DraftVendorCard draft) {
+        draftVendorCardRepository.delete(draft);
+        String reply = "임시 카드 생성을 취소했어요.";
+        chatService.recordAssistantText(weddingProfile, reply);
+        return TempCardConfirmResponse.of(null, reply);
+    }
+
+    private VendorCard currentCard(WeddingProfile weddingProfile, DraftVendorCard draft) {
+        return vendorCardRepository
             .findFirstByWeddingProfileAndCategoryAndCurrentTrueOrderByIdAsc(weddingProfile, draft.getCategory())
             .orElse(null);
-        boolean addCandidate = "add-candidate".equals(action);
-        boolean changeCurrent = "change".equals(action) && currentCard != null;
-        boolean selectAsCurrent = changeCurrent || (!addCandidate && currentCard == null);
-        VendorStatus status = addCandidate ? VendorStatus.CANDIDATE : draft.getStatus();
+    }
 
-        if (changeCurrent) {
-            currentCard.unselect();
-        }
+    private VendorCard createVendorCard(
+        WeddingProfile weddingProfile,
+        DraftVendorCard draft,
+        VendorCard currentCard,
+        String action
+    ) {
+        unselectCurrent(action, currentCard);
+        VendorCard vendorCard = new VendorCard(weddingProfile, draft.getCategory(), draft.getName(),
+            confirmedStatus(action, draft), selectsAsCurrent(action, currentCard));
+        copyDraft(draft, vendorCard);
+        return vendorCardRepository.save(vendorCard);
+    }
 
-        VendorCard vendorCard = new VendorCard(
-            weddingProfile,
-            draft.getCategory(),
-            draft.getName(),
-            status,
-            selectAsCurrent
-        );
+    private void copyDraft(DraftVendorCard draft, VendorCard vendorCard) {
         vendorCard.updateContract(
             draft.getContractDate(),
             draft.getTotalAmount(),
@@ -134,27 +144,31 @@ public class VendorCardService {
             draft.getBalanceDueDate()
         );
         vendorCard.updateMemo(draft.getMemo());
-        vendorCardRepository.save(vendorCard);
+    }
 
-        savePaymentSchedules(weddingProfile, draft, vendorCard, status);
-        if (changeCurrent) {
-            vendorChangeHistoryRepository.save(new VendorChangeHistory(
-                weddingProfile,
-                draft.getCategory(),
-                currentCard,
-                vendorCard,
-                request.reason()
-            ));
-        }
+    private void saveConfirmationDetails(
+        WeddingProfile weddingProfile,
+        DraftVendorCard draft,
+        VendorCard currentCard,
+        VendorCard vendorCard,
+        TempCardConfirmRequest request
+    ) {
+        savePaymentSchedules(weddingProfile, draft, vendorCard, vendorCard.getStatus());
+        saveSchedule(draft, vendorCard);
+        saveChangeHistory(weddingProfile, draft, currentCard, vendorCard, request);
+    }
 
+    private TempCardConfirmResponse completeConfirmation(
+        WeddingProfile weddingProfile,
+        DraftVendorCard draft,
+        VendorCard currentCard,
+        VendorCard vendorCard,
+        TempCardConfirmRequest request
+    ) {
         draftVendorCardRepository.delete(draft);
-        String reply = confirmReply(action, draft, currentCard, selectAsCurrent, request.reason());
+        String reply = confirmReply(request, draft, currentCard, vendorCard);
         chatService.recordAssistantText(weddingProfile, reply);
-
-        return TempCardConfirmResponse.of(
-            VendorCardResponse.from(vendorCard),
-            reply
-        );
+        return TempCardConfirmResponse.of(VendorCardResponse.from(vendorCard), reply);
     }
 
     private VendorCard getOwnedCard(WeddingProfile weddingProfile, Long cardId) {
@@ -186,28 +200,44 @@ public class VendorCardService {
         VendorCard vendorCard,
         VendorStatus status
     ) {
-        if (draft.getDepositAmount() != null) {
-            paymentScheduleRepository.save(new PaymentSchedule(
-                vendorCard,
-                "계약금",
-                draft.getDepositAmount(),
-                draft.getContractDate() == null ? LocalDate.now() : draft.getContractDate(),
-                status == VendorStatus.CONTRACTED,
-                null
-            ));
-        }
+        saveDepositSchedule(draft, vendorCard, status);
+        saveBalanceSchedule(weddingProfile, draft, vendorCard);
+    }
 
-        Long balanceAmount = balanceAmount(draft);
-        if (balanceAmount != null && balanceAmount > 0) {
-            paymentScheduleRepository.save(new PaymentSchedule(
-                vendorCard,
-                "잔금",
-                balanceAmount,
-                balanceDueDate(weddingProfile, draft),
-                false,
-                null
-            ));
+    private void saveDepositSchedule(DraftVendorCard draft, VendorCard vendorCard, VendorStatus status) {
+        if (draft.getDepositAmount() == null) {
+            return;
         }
+        paymentScheduleRepository.save(depositSchedule(draft, vendorCard, status));
+    }
+
+    private PaymentSchedule depositSchedule(DraftVendorCard draft, VendorCard vendorCard, VendorStatus status) {
+        return new PaymentSchedule(
+            vendorCard,
+            "계약금",
+            draft.getDepositAmount(),
+            depositDueDate(draft),
+            status == VendorStatus.CONTRACTED,
+            null
+        );
+    }
+
+    private void saveBalanceSchedule(WeddingProfile weddingProfile, DraftVendorCard draft, VendorCard vendorCard) {
+        Long balanceAmount = balanceAmount(draft);
+        if (balanceAmount == null || balanceAmount <= 0) {
+            return;
+        }
+        paymentScheduleRepository.save(balanceSchedule(weddingProfile, draft, vendorCard, balanceAmount));
+    }
+
+    private PaymentSchedule balanceSchedule(
+        WeddingProfile weddingProfile,
+        DraftVendorCard draft,
+        VendorCard vendorCard,
+        Long balanceAmount
+    ) {
+        return new PaymentSchedule(vendorCard, "잔금", balanceAmount,
+            balanceDueDate(weddingProfile, draft), false, null);
     }
 
     private Long balanceAmount(DraftVendorCard draft) {
@@ -220,6 +250,64 @@ public class VendorCardService {
         return draft.getTotalAmount() - draft.getDepositAmount();
     }
 
+    private VendorStatus confirmedStatus(String action, DraftVendorCard draft) {
+        if (isAddCandidate(action)) {
+            return VendorStatus.CANDIDATE;
+        }
+        return draft.getStatus();
+    }
+
+    private boolean selectsAsCurrent(String action, VendorCard currentCard) {
+        if (isChangeCurrent(action, currentCard)) {
+            return true;
+        }
+        return !isAddCandidate(action) && currentCard == null;
+    }
+
+    private void unselectCurrent(String action, VendorCard currentCard) {
+        if (!isChangeCurrent(action, currentCard)) {
+            return;
+        }
+        currentCard.unselect();
+    }
+
+    private boolean isChangeCurrent(String action, VendorCard currentCard) {
+        return "change".equals(action) && currentCard != null;
+    }
+
+    private boolean isAddCandidate(String action) {
+        return "add-candidate".equals(action);
+    }
+
+    private LocalDate depositDueDate(DraftVendorCard draft) {
+        if (draft.getContractDate() == null) {
+            return LocalDate.now();
+        }
+        return draft.getContractDate();
+    }
+
+    private void saveSchedule(DraftVendorCard draft, VendorCard vendorCard) {
+        if (draft.getScheduleDate() == null) {
+            return;
+        }
+        LocalDateTime eventAt = LocalDateTime.of(draft.getScheduleDate(), scheduleTime(draft));
+        vendorEventRepository.save(new VendorEvent(vendorCard, scheduleTitle(draft), eventAt, null));
+    }
+
+    private LocalTime scheduleTime(DraftVendorCard draft) {
+        if (draft.getScheduleTime() == null) {
+            return LocalTime.MIDNIGHT;
+        }
+        return draft.getScheduleTime();
+    }
+
+    private String scheduleTitle(DraftVendorCard draft) {
+        if (draft.getScheduleTitle() == null || draft.getScheduleTitle().isBlank()) {
+            return draft.getName() + " 일정";
+        }
+        return draft.getScheduleTitle().trim();
+    }
+
     private LocalDate balanceDueDate(WeddingProfile weddingProfile, DraftVendorCard draft) {
         if (draft.getBalanceDueDate() != null) {
             return draft.getBalanceDueDate();
@@ -230,36 +318,57 @@ public class VendorCardService {
         return LocalDate.now();
     }
 
-    private String confirmReply(
-        String action,
-        DraftVendorCard draft,
-        VendorCard currentCard,
-        boolean selectedAsCurrent,
-        String reason
-    ) {
+    private String confirmReply(TempCardConfirmRequest request, DraftVendorCard draft,
+                                VendorCard currentCard, VendorCard vendorCard) {
         String categoryLabel = categoryLabel(draft.getCategory());
-        if ("change".equals(action) && currentCard != null) {
-            String reply = categoryLabel + "을 " + currentCard.getName() + "에서 " + draft.getName() + "(으)로 변경했어요.";
-            if (reason != null && !reason.isBlank()) {
-                return reply + " 변경 사유는 \"" + reason + "\"로 기록했어요.";
-            }
-            return reply;
+        if (isChangeCurrent(request.action(), currentCard)) {
+            return changeReply(categoryLabel, currentCard, draft, request.reason());
         }
-        if ("add-candidate".equals(action)) {
+        if (isAddCandidate(request.action())) {
             return draft.getName() + "을(를) " + categoryLabel + " 후보로 추가했어요.";
         }
-        if (selectedAsCurrent) {
+        if (vendorCard.isCurrent()) {
             return draft.getName() + "을(를) " + categoryLabel + " 업체로 등록했어요.";
         }
         return draft.getName() + "을(를) " + categoryLabel + " 후보 카드로 등록했어요.";
     }
 
+    private void saveChangeHistory(
+        WeddingProfile weddingProfile,
+        DraftVendorCard draft,
+        VendorCard currentCard,
+        VendorCard vendorCard,
+        TempCardConfirmRequest request
+    ) {
+        if (!isChangeCurrent(request.action(), currentCard)) {
+            return;
+        }
+        vendorChangeHistoryRepository.save(new VendorChangeHistory(weddingProfile,
+            draft.getCategory(), currentCard, vendorCard, request.reason()));
+    }
+
+    private String changeReply(
+        String categoryLabel,
+        VendorCard currentCard,
+        DraftVendorCard draft,
+        String reason
+    ) {
+        String reply = categoryLabel + "을 " + currentCard.getName()
+            + "에서 " + draft.getName() + "(으)로 변경했어요.";
+        if (reason != null && !reason.isBlank()) {
+            return reply + " 변경 사유는 \"" + reason + "\"로 기록했어요.";
+        }
+        return reply;
+    }
+
     private String categoryLabel(VendorCategory category) {
-        return switch (category) {
-            case WEDDING_HALL -> "웨딩홀";
-            case STUDIO -> "스튜디오";
-            case DRESS -> "드레스";
-            case MAKEUP -> "메이크업";
-        };
+        return category.label();
+    }
+
+    private String eventTime(CardEventResponse event) {
+        if (event.time() == null) {
+            return "";
+        }
+        return event.time();
     }
 }

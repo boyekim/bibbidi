@@ -13,6 +13,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -57,6 +58,13 @@ public class DraftVendorCard {
     @Lob
     private String sourceMessage;
 
+    private LocalDate scheduleDate;
+
+    private LocalTime scheduleTime;
+
+    @Column(length = 100)
+    private String scheduleTitle;
+
     public DraftVendorCard(WeddingProfile weddingProfile, VendorStatus status, String sourceMessage) {
         this.weddingProfile = weddingProfile;
         this.status = status;
@@ -85,5 +93,15 @@ public class DraftVendorCard {
 
     public void updateMemo(String memo) {
         this.memo = memo;
+    }
+
+    public void updateSourceMessage(String sourceMessage) {
+        this.sourceMessage = sourceMessage;
+    }
+
+    public void updateSchedule(LocalDate scheduleDate, LocalTime scheduleTime, String scheduleTitle) {
+        this.scheduleDate = scheduleDate;
+        this.scheduleTime = scheduleTime;
+        this.scheduleTitle = scheduleTitle;
     }
 }

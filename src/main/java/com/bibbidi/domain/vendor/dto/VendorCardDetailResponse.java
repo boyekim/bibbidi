@@ -2,10 +2,8 @@ package com.bibbidi.domain.vendor.dto;
 
 import com.bibbidi.domain.vendor.PaymentSchedule;
 import com.bibbidi.domain.vendor.VendorCard;
-import com.bibbidi.domain.vendor.VendorCategory;
 import com.bibbidi.domain.vendor.VendorEvent;
 import com.bibbidi.domain.vendor.VendorOption;
-import com.bibbidi.domain.vendor.VendorStatus;
 import com.bibbidi.domain.vendor.VendorChangeHistory;
 import java.time.LocalDate;
 import java.util.Comparator;
@@ -39,10 +37,10 @@ public record VendorCardDetailResponse(
     ) {
         return new VendorCardDetailResponse(
             String.valueOf(vendorCard.getId()),
-            category(vendorCard.getCategory()),
-            categoryLabel(vendorCard.getCategory()),
+            vendorCard.getCategory().apiValue(),
+            vendorCard.getCategory().label(),
             vendorCard.getName(),
-            status(vendorCard.getStatus()),
+            vendorCard.getStatus().apiValue(),
             vendorCard.isCurrent(),
             vendorCard.getContractDate(),
             vendorCard.getTotalAmount(),
@@ -72,36 +70,15 @@ public record VendorCardDetailResponse(
         return java.util.stream.Stream.concat(generalEvents.stream(), paymentEvents.stream())
             .sorted(Comparator
                 .comparing(CardEventResponse::date)
-                .thenComparing(event -> event.time() == null ? "" : event.time())
+                .thenComparing(VendorCardDetailResponse::eventTime)
                 .thenComparing(CardEventResponse::id))
             .toList();
     }
 
-    private static String category(VendorCategory category) {
-        return switch (category) {
-            case WEDDING_HALL -> "hall";
-            case STUDIO -> "studio";
-            case DRESS -> "dress";
-            case MAKEUP -> "makeup";
-        };
-    }
-
-    private static String categoryLabel(VendorCategory category) {
-        return switch (category) {
-            case WEDDING_HALL -> "웨딩홀";
-            case STUDIO -> "스튜디오";
-            case DRESS -> "드레스";
-            case MAKEUP -> "메이크업";
-        };
-    }
-
-    private static String status(VendorStatus status) {
-        return switch (status) {
-            case IN_PROGRESS -> "scheduled";
-            case CANDIDATE -> "candidate";
-            case SCHEDULED -> "scheduled";
-            case CONTRACTED -> "contracted";
-            case NEEDS_COORDINATION -> "coordinating";
-        };
+    private static String eventTime(CardEventResponse event) {
+        if (event.time() == null) {
+            return "";
+        }
+        return event.time();
     }
 }

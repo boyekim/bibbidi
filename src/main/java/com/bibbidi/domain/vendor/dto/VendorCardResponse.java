@@ -1,8 +1,6 @@
 package com.bibbidi.domain.vendor.dto;
 
 import com.bibbidi.domain.vendor.VendorCard;
-import com.bibbidi.domain.vendor.VendorCategory;
-import com.bibbidi.domain.vendor.VendorStatus;
 import java.time.LocalDate;
 
 public record VendorCardResponse(
@@ -22,10 +20,10 @@ public record VendorCardResponse(
     public static VendorCardResponse from(VendorCard vendorCard) {
         return new VendorCardResponse(
             String.valueOf(vendorCard.getId()),
-            category(vendorCard.getCategory()),
-            categoryLabel(vendorCard.getCategory()),
+            vendorCard.getCategory().apiValue(),
+            vendorCard.getCategory().label(),
             vendorCard.getName(),
-            status(vendorCard.getStatus()),
+            vendorCard.getStatus().apiValue(),
             vendorCard.isCurrent(),
             vendorCard.getContractDate(),
             vendorCard.getTotalAmount(),
@@ -35,31 +33,4 @@ public record VendorCardResponse(
         );
     }
 
-    private static String category(VendorCategory category) {
-        return switch (category) {
-            case WEDDING_HALL -> "hall";
-            case STUDIO -> "studio";
-            case DRESS -> "dress";
-            case MAKEUP -> "makeup";
-        };
-    }
-
-    private static String categoryLabel(VendorCategory category) {
-        return switch (category) {
-            case WEDDING_HALL -> "웨딩홀";
-            case STUDIO -> "스튜디오";
-            case DRESS -> "드레스";
-            case MAKEUP -> "메이크업";
-        };
-    }
-
-    private static String status(VendorStatus status) {
-        return switch (status) {
-            case IN_PROGRESS -> "inProgress";
-            case CANDIDATE -> "candidate";
-            case SCHEDULED -> "scheduled";
-            case CONTRACTED -> "contracted";
-            case NEEDS_COORDINATION -> "coordinating";
-        };
-    }
 }
