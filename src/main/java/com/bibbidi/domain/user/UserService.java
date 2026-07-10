@@ -16,7 +16,10 @@ import java.util.HexFormat;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 @Transactional(readOnly = true)
@@ -27,6 +30,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final PlatformTransactionManager transactionManager;
 
     @Transactional
     public UserResponse signup(UserSignupRequest request) {
@@ -57,18 +61,28 @@ public class UserService {
         return UserResponse.from(user);
     }
 
-    @Transactional
     public User loginWithToken(String token, HttpSession session) {
-        User user = userRepository.findByEmail(createDemoUserEmail(token))
-                .orElseGet(() -> userRepository.save(new User(
-                        createDemoUserEmail(token),
-                        passwordEncoder.encode(token),
-                        "보예"
-                )));
+        User user = findOrCreateDemoUser(token);
 
         session.setAttribute(USER_ID_SESSION_KEY, user.getId());
 
         return user;
+    }
+
+    private synchronized User findOrCreateDemoUser(String token) {
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+
+        return transactionTemplate.execute(status -> {
+            String email = createDemoUserEmail(token);
+
+            return userRepository.findByEmail(email)
+                    .orElseGet(() -> userRepository.save(new User(
+                            email,
+                            passwordEncoder.encode(token),
+                            "보예"
+                    )));
+        });
     }
 
     public boolean isLoggedIn(HttpSession session) {
