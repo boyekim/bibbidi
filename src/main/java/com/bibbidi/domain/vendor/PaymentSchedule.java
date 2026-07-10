@@ -40,7 +40,14 @@ public class PaymentSchedule {
     @Lob
     private String memo;
 
-    public PaymentSchedule(VendorCard vendorCard, String label, Long amount, LocalDate dueDate, boolean paid, String memo) {
+    public PaymentSchedule(
+        VendorCard vendorCard,
+        String label,
+        Long amount,
+        LocalDate dueDate,
+        boolean paid,
+        String memo
+    ) {
         this.vendorCard = vendorCard;
         this.label = label;
         this.amount = amount;
@@ -55,5 +62,9 @@ public class PaymentSchedule {
 
     public void reopen() {
         this.paid = false;
+    }
+
+    public void updateMemo(String memo) {
+        this.memo = memo;
     }
 }

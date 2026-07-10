@@ -1,6 +1,7 @@
 package com.bibbidi.domain.vendor;
 
 import com.bibbidi.domain.user.User;
+import com.bibbidi.domain.vendor.dto.CardAnalysisApplyRequest;
 import com.bibbidi.domain.vendor.dto.CardEventResponse;
 import com.bibbidi.domain.vendor.dto.TempCardConfirmRequest;
 import com.bibbidi.domain.vendor.dto.TempCardConfirmResponse;
@@ -48,6 +49,15 @@ public class VendorCardApi {
         @Valid @RequestBody VendorCardMemoUpdateRequest request
     ) {
         return ResponseEntity.ok(vendorCardService.updateMemo(user, cardId, request));
+    }
+
+    @PostMapping("/api/cards/{cardId}/analyze/apply")
+    public ResponseEntity<VendorCardDetailResponse> applyAnalysis(
+        @Auth User user,
+        @PathVariable Long cardId,
+        @Valid @RequestBody CardAnalysisApplyRequest request
+    ) {
+        return ResponseEntity.ok(vendorCardService.applyAnalysis(user, cardId, request));
     }
 
     @GetMapping("/api/events")
