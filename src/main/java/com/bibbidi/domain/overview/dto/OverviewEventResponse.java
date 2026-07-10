@@ -34,7 +34,15 @@ public record OverviewEventResponse(
             null,
             paymentSchedule.getVendorCard().getName() + " " + paymentSchedule.getLabel() + " 납부",
             "payment",
-            paymentSchedule.getAmount() + "원 · " + paymentSchedule.getLabel()
+            formatAmount(paymentSchedule.getAmount()) + " · " + paymentSchedule.getLabel()
         );
+    }
+
+    private static String formatAmount(Long amount) {
+        if (amount == null) {
+            return "금액 미입력";
+        }
+
+        return String.format("%,d원", amount);
     }
 }

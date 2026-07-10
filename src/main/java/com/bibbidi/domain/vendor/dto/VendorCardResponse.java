@@ -6,7 +6,7 @@ import com.bibbidi.domain.vendor.VendorStatus;
 import java.time.LocalDate;
 
 public record VendorCardResponse(
-    Long id,
+    String id,
     String category,
     String categoryLabel,
     String vendorName,
@@ -21,7 +21,7 @@ public record VendorCardResponse(
 
     public static VendorCardResponse from(VendorCard vendorCard) {
         return new VendorCardResponse(
-            vendorCard.getId(),
+            String.valueOf(vendorCard.getId()),
             category(vendorCard.getCategory()),
             categoryLabel(vendorCard.getCategory()),
             vendorCard.getName(),
