@@ -2,6 +2,9 @@ package com.bibbidi.domain.vendor;
 
 import com.bibbidi.domain.chat.ChatService;
 import com.bibbidi.domain.user.User;
+import com.bibbidi.domain.vendor.dto.AnalysisEventRequest;
+import com.bibbidi.domain.vendor.dto.AnalysisPaymentRequest;
+import com.bibbidi.domain.vendor.dto.CardAnalysisApplyRequest;
 import com.bibbidi.domain.vendor.dto.CardEventResponse;
 import com.bibbidi.domain.vendor.dto.TempCardConfirmRequest;
 import com.bibbidi.domain.vendor.dto.TempCardConfirmResponse;
@@ -49,13 +52,7 @@ public class VendorCardService {
         WeddingProfile weddingProfile = demoWeddingDataService.ensureDefaultData(user);
         VendorCard vendorCard = getOwnedCard(weddingProfile, cardId);
 
-        return VendorCardDetailResponse.of(
-            vendorCard,
-            paymentScheduleRepository.findByVendorCardOrderByDueDateAscIdAsc(vendorCard),
-            vendorOptionRepository.findByVendorCardOrderByIdAsc(vendorCard),
-            vendorChangeHistoryRepository.findByPreviousCardOrNewCardOrderByChangedAtDescIdDesc(vendorCard, vendorCard),
-            vendorEventRepository.findByVendorCardOrderByEventAtAscIdAsc(vendorCard)
-        );
+        return detailResponse(vendorCard);
     }
 
     @Transactional
@@ -66,6 +63,15 @@ public class VendorCardService {
         vendorCard.updateMemo(request.memoDoc());
 
         return VendorCardResponse.from(vendorCard);
+    }
+
+    @Transactional
+    public VendorCardDetailResponse applyAnalysis(User user, Long cardId, CardAnalysisApplyRequest request) {
+        WeddingProfile weddingProfile = demoWeddingDataService.ensureDefaultData(user);
+        VendorCard vendorCard = getOwnedCard(weddingProfile, cardId);
+        request.events().forEach(event -> saveAnalysisEvent(vendorCard, event));
+        request.payments().forEach(payment -> saveAnalysisPayment(vendorCard, payment));
+        return detailResponse(vendorCard);
     }
 
     @Transactional
@@ -175,6 +181,66 @@ public class VendorCardService {
         return vendorCardRepository.findById(cardId)
             .filter(card -> card.getWeddingProfile().getId().equals(weddingProfile.getId()))
             .orElseThrow(() -> new NotFoundException(VendorErrors.CARD_NOT_FOUND));
+    }
+
+    private VendorCardDetailResponse detailResponse(VendorCard vendorCard) {
+        return VendorCardDetailResponse.of(
+            vendorCard,
+            paymentScheduleRepository.findByVendorCardOrderByDueDateAscIdAsc(vendorCard),
+            vendorOptionRepository.findByVendorCardOrderByIdAsc(vendorCard),
+            vendorChangeHistoryRepository
+                .findByPreviousCardOrNewCardOrderByChangedAtDescIdDesc(vendorCard, vendorCard),
+            vendorEventRepository.findByVendorCardOrderByEventAtAscIdAsc(vendorCard)
+        );
+    }
+
+    private void saveAnalysisEvent(VendorCard vendorCard, AnalysisEventRequest request) {
+        LocalDateTime eventAt = LocalDateTime.of(request.date(), analysisEventTime(request));
+        String title = request.title().trim();
+        if (vendorEventRepository.existsByVendorCardAndTitleAndEventAt(vendorCard, title, eventAt)) {
+            return;
+        }
+        vendorEventRepository.save(new VendorEvent(vendorCard, title, eventAt, request.quote()));
+    }
+
+    private LocalTime analysisEventTime(AnalysisEventRequest request) {
+        if (request.time() == null) {
+            return LocalTime.MIDNIGHT;
+        }
+        return request.time();
+    }
+
+    private void saveAnalysisPayment(VendorCard vendorCard, AnalysisPaymentRequest request) {
+        PaymentSchedule payment = paymentScheduleRepository
+            .findFirstByVendorCardAndLabelAndPaidFalseOrderByIdAsc(vendorCard, request.label().trim())
+            .orElse(null);
+        if (payment != null) {
+            payment.updateMemo(request.quote());
+            return;
+        }
+        paymentScheduleRepository.save(newAnalysisPayment(vendorCard, request));
+    }
+
+    private PaymentSchedule newAnalysisPayment(VendorCard vendorCard, AnalysisPaymentRequest request) {
+        return new PaymentSchedule(
+            vendorCard,
+            request.label().trim(),
+            request.amount(),
+            analysisPaymentDueDate(vendorCard, request),
+            false,
+            request.quote()
+        );
+    }
+
+    private LocalDate analysisPaymentDueDate(VendorCard vendorCard, AnalysisPaymentRequest request) {
+        if (request.dueDate() != null) {
+            return request.dueDate();
+        }
+        LocalDate weddingDate = vendorCard.getWeddingProfile().getWeddingDate();
+        if (weddingDate == null) {
+            throw new BadRequestException(VendorErrors.INVALID_ANALYSIS_RESULT);
+        }
+        return weddingDate;
     }
 
     private boolean isWithin(LocalDate date, LocalDate from, LocalDate to) {
